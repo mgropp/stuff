@@ -1,0 +1,194 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import argparse
+import tempfile
+import time
+from pulsevoip import *
+from recorder import PulseRecorder
+
+
+class PulseVoIPServer(object):
+	def __init__(self, local_source, local_sink, remote_address=None, remote_source=None, remote_sink=None, safe_ips=None):
+		self.safe_ips = safe_ips
+		self.local_source = local_source
+		self.local_sink = local_sink
+		self.remote_address = remote_address
+		self.remote_source = remote_source
+		self.remote_sink = remote_sink
+		
+		# unload modules that might get in the way
+		unload_modules('module-zeroconf-discover')
+		unload_modules('module-loopback')
+		unload_modules('module-tunnel-source')
+		unload_modules('module-tunnel-sink')
+		unload_modules('module-native-protocol-tcp')
+		
+		self.modules = []
+	
+	
+	def setup(self):
+		for module in self.modules:
+			unload_module(module)
+		
+		self.modules = []
+		
+		
+		# load tcp module
+		args = [ 'auth-anonymous=1' ]
+		if not self.safe_ips is None:
+			args = [ 'auth-ip-acl=%s' % safe_ips ] + args
+		
+		self.modules = self.modules + [ load_module('module-native-protocol-tcp', args) ]
+	
+	
+	def discover(self):
+		"""
+		Use information inf self.remote_address, self.remote_source, self.remote_sink to find
+		zeroconf information, store to self.remote_source_info, self.remote_sink_info.
+		"""
+		
+		remote_address = None if self.remote_address is None else socket.gethostbyname(self.remote_address)
+		
+		# Find remote source
+		if remote_address and remote_source:
+			remote_source_info = avahi_browse(ZEROCONF_TYPE_PA_SOURCE, address=remote_address, device=remote_source, wait=5)
+			if len(remote_source_info) == 0:
+				raise Exception('Source %s at %s not found.' % (remote_source, remote_address))
+			else:
+				self.remote_source_info = remote_source_info[0]
+		else:
+			self.remote_source_info = select_avahi_device('source', address=remote_address)
+		
+		# Find remote sink
+		if remote_address and remote_sink:
+			remote_sink_info = avahi_browse(ZEROCONF_TYPE_PA_SINK, address=remote_address, device=remote_sink, wait=5)
+			if len(remote_sink_info) == 0:
+				raise Exception('Sink %s at %s not found.' % (remote_sink, remote_address))
+			else:
+				self.remote_sink_info = remote_sink_info[0]
+		else:
+			self.remote_sink_info = select_avahi_device('sink', address=remote_address)
+	
+	
+	def patch(self):
+		"""
+		Use information in self.remote_source_info and remote_sink_info
+		to create tunnels and loopbacks to self.local_source /
+		self.local_sink.
+		"""
+		
+		# Create tunnels
+		(module, self.tunnel_source) = create_tunnel(self.remote_source_info)
+		self.modules += [ module ]
+		(module, self.tunnel_sink) = create_tunnel(self.remote_sink_info)
+		self.modules += [ module ]
+		
+		# Connect them to the local devices
+		self.modules = self.modules + [
+			add_loopback(self.tunnel_source, self.local_sink),
+			add_loopback(self.local_source, self.tunnel_sink)
+		]
+	
+	
+	def reconnect(self):
+		"""
+		Reconnect skipping the discovery step.
+		"""
+		# TODO: Make sure the remote devices are actually found?
+		self.setup()
+		self.patch()
+	
+	
+	def __enter__(self):
+		self.setup()
+		self.discover()
+		self.patch()
+		return self
+	
+	
+	def __exit__(self, exc_type, exc_value, traceback):
+		# Unload the modules we loaded (incl. loopback)
+		for module in self.modules:
+			unload_module(module)
+		
+		self.modules = []
+		return False
+
+
+if __name__ == '__main__':
+	print '╭───────────╮'
+	print '│ PulseVoIP │'
+	print '╰───────────╯'
+	print
+	
+	parser = argparse.ArgumentParser(description='PulseVoIP')
+	parser.add_argument('--discover', action='store_true')
+	parser.add_argument('--remote-address', type=str, required=False)
+	parser.add_argument('--remote-source', type=str, required=False)
+	parser.add_argument('--remote-sink', type=str, required=False)
+	parser.add_argument('--local-source', type=str, required=False, default=get_default_source_name())
+	parser.add_argument('--local-sink', type=str, required=False, default=get_default_sink_name())
+	args = parser.parse_args()
+	
+	safe_ips = None
+	if args.remote_address is None:
+		print 'Warning: Access to this computer\'s sources and sinks is not secured. Use the --remote-address parameter!'
+	else:
+		safe_ips = '127.0.0.0/8;' + args.remote_address
+	
+	with PulseVoIPServer(args.local_source, args.local_sink, args.remote_address, args.remote_source, args.remote_sink) as voip:
+		commands = [ 'quit', 'record', 'stop', 'reconnect' ]
+		init_readline(commands)
+		recorder = None
+		
+		print
+		print 'Ready.'
+		print 'Available commands:', ', '.join(commands)
+		
+		while True:
+			try:
+				line = raw_input('> ')
+				tokens = line.split()
+			except EOFError:
+				tokens = [ 'quit' ]
+			
+			if len(tokens) == 0:
+				continue
+			
+			if tokens[0] == 'quit':
+				if not recorder is None and recorder.is_recording():
+					recorder.stop()
+					print '[■] Stopped.'
+				break
+			
+			elif tokens[0] == 'record':
+				if recorder is None:
+					recorder = PulseRecorder()
+				if recorder.is_recording():
+					print 'Already recording!'
+				
+				if len(tokens) < 2:
+					filename = tempfile.mktemp(suffix='.wav', prefix='pulsevoip-%s-' % time.strftime("%Y-%m-%d-%H-%M-%S"))
+					print 'No file name supplied -- using %s.' % filename
+				else:
+					filename = tokens[1]
+					print 'Filename: %s' % filename
+				
+				recorder.record(voip.local_source, voip.tunnel_source, filename)
+				print '[●] Recording.'
+				
+			elif tokens[0] == 'stop':
+				if recorder is None or not recorder.is_recording():
+					print 'Not recording.'
+				else:
+					recorder.stop()
+					print '[■] Stopped.'
+			
+			elif tokens[0] == 'reconnect':
+				if not recorder is None and recorder.is_recording():
+					print 'Currently recording -- stop first!'
+				else:
+					voip.reconnect()
+			
+			else:
+				print 'Unknown command: %s' % tokens[0]

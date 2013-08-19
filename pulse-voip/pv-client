@@ -1,0 +1,78 @@
+#!/usr/bin/env python
+import argparse
+from pulsevoip import *
+
+# simply load necessary modules, let the server handle the rest
+
+class PulseVoIPClient(object):
+	def __init__(self, safe_ips=None):
+		self.safe_ips = safe_ips
+		self.modules = []
+	
+	
+	def restart(self):
+		unload_modules('module-zeroconf-publish')
+		unload_modules('module-native-protocol-tcp')
+		self.modules = []
+		
+		args = [ 'auth-anonymous=1' ]
+		if not self.safe_ips is None:
+			args = [ 'auth-ip-acl=%s' % self.safe_ips ] + args
+			
+		self.modules = self.modules + [ load_module('module-native-protocol-tcp', args) ]
+		time.sleep(5)
+		self.modules = self.modules + [ load_module('module-zeroconf-publish') ]
+	
+	
+	def __enter__(self):
+		self.restart()
+		return self
+	
+	
+	def __exit__(self, exc_type, exc_value, traceback):
+		for module in self.modules:
+			unload_module(module)
+		
+		self.modules = []
+		return False
+
+
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser(description='PulseVoIP')
+	parser.add_argument('--remote-address', type=str, required=False)
+	args = parser.parse_args()
+	
+	print 'To connect to the default source and sink of this client, use the following command:'
+	print 'pv-server --tunnel-source %s --tunnel-sink %s' % (
+		'tunnel.%s.%s' % (get_tunnel_hostname(), get_default_source_name()),
+		'tunnel.%s.%s' % (get_tunnel_hostname(), get_default_sink_name())
+	)
+	print '(The device names might be wrong.)'
+	print
+	
+	safe_ips = None
+	if args.remote_address is None:
+		print 'Warning: Access to this computer\'s sources and sinks is not secured. Use the --remote-address parameter!'
+	else:
+		safe_ips = '127.0.0.0/8;' + args.remote_address
+	
+	print
+	with PulseVoIPClient(safe_ips) as voip:
+		init_readline([ 'quit', 'restart' ])
+		print
+		print 'Available commands: quit, restart'
+		
+		while True:
+			try:
+				line = raw_input('> ').strip()
+			except EOFError:
+				break
+			
+			if line == 'quit':
+				break
+			elif line == 'restart':
+				voip.restart()
+			else:
+				print 'Unknown command: %s' % line
+	
+	print 'Good bye.'
