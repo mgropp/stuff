@@ -2,7 +2,8 @@
 % LSV small document class (2013-09-25)
 % Author: Martin Gropp
 %
-% Used fonts (XeTeX required): Quattrocento Sans, Ubuntu
+% Used fonts (XeTeX required): Quattrocento Sans, Ubuntu,
+% Droid Sans Mono
 %
 
 \NeedsTeXFormat{LaTeX2e}
