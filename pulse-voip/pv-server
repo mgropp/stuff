@@ -3,9 +3,10 @@
 import argparse
 import tempfile
 import time
+import sys
+import os
 from pulsevoip import *
 from recorder import PulseRecorder
-
 
 class PulseVoIPServer(object):
 	def __init__(self, local_source, local_sink, remote_address=None, remote_source=None, remote_sink=None, safe_ips=None):
@@ -157,8 +158,11 @@ if __name__ == '__main__':
 			
 			if tokens[0] == 'quit':
 				if not recorder is None and recorder.is_recording():
-					recorder.stop()
-					print '[■] Stopped.'
+					try:
+						recorder.stop()
+					except Exception, e:
+						print >>sys.stderr, e
+					print '[' + colorama.Fore.BLUE + '■' + colorama.Fore.RESET + '] Stopped.'
 				break
 			
 			elif tokens[0] == 'record':
@@ -167,22 +171,37 @@ if __name__ == '__main__':
 				if recorder.is_recording():
 					print 'Already recording!'
 				
+				t = time.strftime("%Y-%m-%d-%H-%M-%S")
+				
 				if len(tokens) < 2:
-					filename = tempfile.mktemp(suffix='.wav', prefix='pulsevoip-%s-' % time.strftime("%Y-%m-%d-%H-%M-%S"))
+					filename = tempfile.mktemp(suffix='.wav', prefix='%s-pulsevoip-' % t, dir=os.getenv("HOME"))
 					print 'No file name supplied -- using %s.' % filename
 				else:
-					filename = tokens[1]
+					filename_cmp = tokens[1].split(os.sep)
+					if len(filename_cmp) == 1:
+						filename_cmp = filter(lambda x: len(x) != 0, os.getenv("HOME").split(os.sep)) + filename_cmp
+					
+					if not '.' in filename_cmp[-1]:
+						filename_cmp[-1] = '%s-%s.wav' % (t, filename_cmp[-1])
+					
+					filename = os.sep + os.sep.join(filename_cmp)
+					
 					print 'Filename: %s' % filename
+
+				try:
+					recorder.record(voip.local_source, voip.tunnel_source, filename)
+				except Exception, e:
+					print >>sys.stderr, e
 				
-				recorder.record(voip.local_source, voip.tunnel_source, filename)
-				print '[●] Recording.'
+				print '[' + colorama.Fore.RED + '●' + colorama.Fore.RESET + '] Recording.'
+				time.sleep(1.5)
 				
 			elif tokens[0] == 'stop':
 				if recorder is None or not recorder.is_recording():
 					print 'Not recording.'
 				else:
-					recorder.stop()
-					print '[■] Stopped.'
+					filename = recorder.stop()
+					print '[' + colorama.Fore.BLUE + '■' + colorama.Fore.RESET + '] Stopped. Output file: ' + filename
 			
 			elif tokens[0] == 'reconnect':
 				if not recorder is None and recorder.is_recording():
@@ -192,3 +211,4 @@ if __name__ == '__main__':
 			
 			else:
 				print 'Unknown command: %s' % tokens[0]
+				print 'Available commands:', ', '.join(commands)

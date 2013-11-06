@@ -331,9 +331,10 @@ def select_avahi_device(devtype, address=None, hidelocal=True):
 			
 		if i == 0:
 			print '(None)'
+			print
 		
 		if len(discovered) == 0:
-			s = raw_input('No devices found, hit Enter to rescan: ').strip()
+			s = raw_input('No remote devices found. Make sure the client is running on the remote computer and hit Enter to rescan: ').strip()
 		else:
 			s = raw_input('Type a device number, or just hit Enter to rescan: ').strip()
 		if len(s) == 0:
