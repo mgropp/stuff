@@ -38,6 +38,11 @@ class PulseVoIPClient(object):
 
 
 if __name__ == '__main__':
+	print '╭───────────╮'
+	print '│ PulseVoIP │'
+	print '╰───────────╯'
+	print '(version: 2013-11-07)'
+
 	parser = argparse.ArgumentParser(description='PulseVoIP')
 	parser.add_argument('--remote-address', type=str, required=False)
 	args = parser.parse_args()

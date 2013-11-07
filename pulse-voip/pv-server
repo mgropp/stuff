@@ -120,7 +120,7 @@ if __name__ == '__main__':
 	print '╭───────────╮'
 	print '│ PulseVoIP │'
 	print '╰───────────╯'
-	print
+	print '(version: 2013-11-07)'
 	
 	parser = argparse.ArgumentParser(description='PulseVoIP')
 	parser.add_argument('--discover', action='store_true')
