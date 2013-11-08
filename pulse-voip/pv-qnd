@@ -11,6 +11,25 @@ import traceback
 from pulsevoip import *
 from recorder import PulseRecorder
 
+#
+# PulseVoIP: The Quick and Dirty Edition
+#
+
+#
+# Requirements:
+#
+# PulseAudio has to run in system mode on the remote system (which is
+# a bad thing) and allow users to load modules (which is a very bad
+# thing).
+# Debian/Ubuntu: /etc/default/pulseaudio and /etc/pulse/daemon.conf
+#
+# The remote user needs to have the local user's SSH key in its
+# ~/.ssh/authorized_keys file. (And make sure you don't have to enter
+# the key's password for every connection...).
+# The remote user needs to be member of the pulse and pulse-access
+# groups.
+#
+
 class PulseVoIPQnD(object):
 	def __init__(
 		self,
@@ -48,6 +67,7 @@ class PulseVoIPQnD(object):
 	
 	def connect(self):
 		# Unload modules
+		print 'Unloading possibly disruptive modules...'
 		for wrapper in [ None, self.remote_wrapper ]:
 			unload_modules('module-zeroconf-discover', wrapper=wrapper)
 			unload_modules('module-loopback', wrapper=wrapper)
@@ -56,16 +76,18 @@ class PulseVoIPQnD(object):
 			unload_modules('module-native-protocol-tcp', wrapper=wrapper)
 
 		# Load tcp protocol modules
+		print 'Loading protocol modules...'
 		# TODO: safe_ips (because the rest is so safe...)
 		args = [ 'auth-anonymous=1' ]
 		self.local_modules += [ load_module('module-native-protocol-tcp', args) ]
 		self.remote_modules += [ load_module('module-native-protocol-tcp', args, wrapper=self.remote_wrapper) ]
 
 		# Wait to make sure the tcp modules are actually ready
-		print "Waiting for protocol modules to become ready..."
+		print 'Waiting for protocol modules to become ready...'
 		time.sleep(5)
 
 		# Create tunnels
+		print 'Creating tunnels...'
 		# remote source -> local sink works, the other direction doesn't. :(
 		(local_tunnel_module, local_tunnel) = create_tunnel_direct(self.remote_host, self.remote_port, self.remote_source, 'source')
 		(remote_tunnel_module, remote_tunnel) = create_tunnel_direct(self.local_host, self.local_port, self.local_source, 'source', wrapper=self.remote_wrapper)
@@ -76,6 +98,7 @@ class PulseVoIPQnD(object):
 		self.remote_tunnel = remote_tunnel
 
 		# Create loopbacks
+		print 'Creating loopback connections...'
 		self.local_modules += [ add_loopback(local_tunnel, self.local_sink) ]
 		self.remote_modules += [ add_loopback(remote_tunnel, self.remote_sink, wrapper=self.remote_wrapper) ]
 	
@@ -110,7 +133,9 @@ if __name__ == '__main__':
 	
 	#safe_ips = None
 	
+	print
 	print args
+	print
 	
 	with PulseVoIPQnD(
 		remote_host=args.remote_host,

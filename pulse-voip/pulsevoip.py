@@ -39,8 +39,7 @@ def pactl(command, wrapper=None):
 		
 		command = wrapper + command
 	
-	print "pactl:"
-	print command
+	logger.debug("pactl: %s" % command)
 	
 	return subprocess.check_output(command)
 
