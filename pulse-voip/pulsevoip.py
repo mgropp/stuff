@@ -17,17 +17,31 @@ handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter(colorama.Fore.WHITE + colorama.Style.DIM + '%(asctime)s - %(name)s - %(levelname)s - %(message)s' + colorama.Style.NORMAL + colorama.Fore.RESET))
 logger.addHandler(handler)
 
-def pacmd(command):
-	if type(command) != list:
-		command = [ command ]
-	command = [ 'pacmd' ] + command
-	return subprocess.check_output(command)
+#def pacmd(command):
+#	if type(command) != list:
+#		command = [ command ]
+#	command = [ 'pacmd' ] + command
+#	return subprocess.check_output(command)
 
 
-def pactl(command):
+def pactl(command, wrapper=None):
+	"""
+	command: pactl command (should be a list)
+	wrapper: wrapper command (e.g. [ 'ssh', 'user@host' ])
+	"""
 	if type(command) != list:
 		command = [ command ]
 	command = [ 'pactl' ] + command
+	
+	if not wrapper is None:
+		if type(wrapper) != list:
+			wrapper = [ wrapper ]
+		
+		command = wrapper + command
+	
+	print "pactl:"
+	print command
+	
 	return subprocess.check_output(command)
 
 
@@ -80,20 +94,20 @@ def text2dict(typeid, text, dictkeys=['Properties']):
 	return outdict
 
 
-def list_modules():
-	return text2dict("Module", pactl(['list', 'modules']))
+def list_modules(wrapper=None):
+	return text2dict("Module", pactl(['list', 'modules'], wrapper=wrapper))
 	
 
-def list_sources():
-	return text2dict("Source", pactl(['list', 'sources']))
+def list_sources(wrapper=None):
+	return text2dict("Source", pactl(['list', 'sources'], wrapper=wrapper))
 
 
-def list_sinks():
-	return text2dict("Sink", pactl(['list', 'sinks']))
+def list_sinks(wrapper=None):
+	return text2dict("Sink", pactl(['list', 'sinks'], wrapper=wrapper))
 
 
-def get_stat():
-	return pactl(['stat'])
+def get_stat(wrapper=None):
+	return pactl(['stat'], wrapper=wrapper)
 
 
 def get_default_sink_name(stat=None):
@@ -110,45 +124,45 @@ def get_default_source_name(stat=None):
 	return filter(lambda x: x.startswith('Default Source: '), stat.split('\n'))[0].split(':', 1)[1].strip()
 
 
-def get_module_info(name, modules=None):
+def get_module_info(name, modules=None, wrapper=None):
 	if modules is None:
-		modules = list_modules()
+		modules = list_modules(wrapper=wrapper)
 	
 	return { k: v for k, v in modules.iteritems() if v['Name'] == name }
 
 
-def get_sink_info(name, sinks=None):
+def get_sink_info(name, sinks=None, wrapper=None):
 	if sinks is None:
-		sinks = list_sinks()
+		sinks = list_sinks(wrapper=wrapper)
 	
 	return [ v for k, v in sinks.iteritems() if v['Name'] == name ][0]
 
 
-def get_source_info(name, sources=None):
+def get_source_info(name, sources=None, wrapper=None):
 	if sources is None:
-		sources = list_sources()
+		sources = list_sources(wrapper=wrapper)
 	
 	return [ v for k, v in sources.iteritems() if v['Name'] == name ][0]
 
 
-def unload_module(index):
+def unload_module(index, wrapper=None):
 	logger.debug("Unloading module #%s" % index)
 	try:
-		pactl(['unload-module', str(index)])
+		pactl(['unload-module', str(index)], wrapper=wrapper)
 	except Exception:
 		logger.error('Unloading module #%s failed.' % index)
 
 
-def unload_modules(name, modules=None):
+def unload_modules(name, modules=None, wrapper=[]):
 	logger.info("Unloading module %s" % name)
-	info = get_module_info(name, modules=modules)
+	info = get_module_info(name, modules=modules, wrapper=wrapper)
 	for index in info.keys():
-		unload_module(index)
+		unload_module(index, wrapper=wrapper)
 
 
-def load_module(name, arguments=[]):
+def load_module(name, arguments=[], wrapper=[]):
 	logger.info('Loading module %s with arguments %s' % (name, arguments))
-	return int(pactl(['load-module', name] + arguments).strip())
+	return int(pactl(['load-module', name] + arguments, wrapper).strip())
 
 
 def get_tunneled_sources(remote_ip=None, sources=None):
@@ -173,9 +187,9 @@ def get_tunneled_sinks(remote_ip=None, sinks=None):
 	return tunneled
 
 
-def add_loopback(source, sink):
+def add_loopback(source, sink, wrapper=None):
 	logger.info('Adding Loopback %s -> %s' % (source, sink))
-	return load_module('module-loopback', ['source=' + source, 'sink=' + sink])
+	return load_module('module-loopback', ['source=' + source, 'sink=' + sink], wrapper=wrapper)
 	#, 'latency_msec=500'])
 	#, 'latency_msec=1', ])
 
@@ -370,9 +384,49 @@ def tunnel_args_from_avahi(info):
 	)
 
 
-def create_tunnel(info):
+def tunnel_args(
+	hostname, port, device, devtype,
+	format='s16le', channels=1,
+	rate=44100, channelmap='mono',
+	address=None
+):
+	"""
+	port: usually 4713
+	devtype: source|sink
+	"""
+	if address is None:
+		address = socket.gethostbyname(hostname)
+	
+	return (
+		'module-tunnel-%s' % devtype,
+		[
+			'server=[%s]:%s' % (address, port),
+			'%s=%s' % (devtype, device),
+			'format=%s'  % format,
+			'channels=%s' % channels,
+			'rate=%s' % rate,
+			'%s_name=tunnel.%s.%s' % (devtype, hostname, device),
+			'channel_map=%s' % channelmap
+		]
+	)
+	
+	#['server=[134.96.116.27]:4713', 'source=alsa_input.usb-Sennheiser_Communications_Sennheiser_USB_headset-00-headset.analog-mono', 'format=s16le', 'channels=1', 'rate=44100', 'source_name=tunnel.ws47lx.local.alsa_input.usb-Sennheiser_Communications_Sennheiser_USB_headset-00-headset.analog-mono', 'channel_map=mono']
+
+
+def create_tunnel(info, wrapper=None):
 	"""
 	Returns module index and (guessed) local device name.
 	"""
-	module = load_module(*tunnel_args_from_avahi(info))
+	module = load_module(*tunnel_args_from_avahi(info), wrapper=wrapper)
 	return (module, 'tunnel.%s.%s' % (info['host_name'], info['properties']['device']))
+
+
+def create_tunnel_direct(
+	hostname, port, device, devtype,
+	format='s16le', channels=1,
+	rate=44100, channelmap='mono',
+	address=None,
+	wrapper=None
+):
+	module = load_module(*tunnel_args(hostname, port, device, devtype, format=format, channels=channels, rate=rate, channelmap=channelmap, address=address), wrapper=wrapper)
+	return (module, 'tunnel.%s.%s' % (hostname, device))

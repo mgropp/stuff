@@ -1,0 +1,195 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+import socket
+import colorama
+import argparse
+import tempfile
+import time
+import sys
+import os
+import traceback
+from pulsevoip import *
+from recorder import PulseRecorder
+
+class PulseVoIPQnD(object):
+	def __init__(
+		self,
+		remote_host, remote_port, remote_wrapper,
+		local_host, local_port,
+		remote_source,
+		remote_sink,
+		local_source,
+		local_sink,
+	):
+		# TODO: make sure remote_host and local_host are actually
+		# what's used by PulseAudio for creating tunnel names.
+		
+		self.remote_modules = []
+		self.local_modules = []
+		
+		self.remote_host = remote_host
+		self.remote_port = remote_port
+		
+		self.remote_wrapper = remote_wrapper
+		
+		self.local_host = local_host
+		self.local_port = local_port
+	
+		self.remote_source = remote_source
+		self.remote_sink = remote_sink
+		self.local_source = local_source
+		self.local_sink = local_sink
+	
+	
+	def __enter__(self):
+		self.connect()
+		return self
+	
+	
+	def connect(self):
+		# Unload modules
+		for wrapper in [ None, self.remote_wrapper ]:
+			unload_modules('module-zeroconf-discover', wrapper=wrapper)
+			unload_modules('module-loopback', wrapper=wrapper)
+			unload_modules('module-tunnel-source', wrapper=wrapper)
+			unload_modules('module-tunnel-sink', wrapper=wrapper)
+			unload_modules('module-native-protocol-tcp', wrapper=wrapper)
+
+		# Load tcp protocol modules
+		# TODO: safe_ips (because the rest is so safe...)
+		args = [ 'auth-anonymous=1' ]
+		self.local_modules += [ load_module('module-native-protocol-tcp', args) ]
+		self.remote_modules += [ load_module('module-native-protocol-tcp', args, wrapper=self.remote_wrapper) ]
+
+		# Wait to make sure the tcp modules are actually ready
+		print "Waiting for protocol modules to become ready..."
+		time.sleep(5)
+
+		# Create tunnels
+		# remote source -> local sink works, the other direction doesn't. :(
+		(local_tunnel_module, local_tunnel) = create_tunnel_direct(self.remote_host, self.remote_port, self.remote_source, 'source')
+		(remote_tunnel_module, remote_tunnel) = create_tunnel_direct(self.local_host, self.local_port, self.local_source, 'source', wrapper=self.remote_wrapper)
+
+		self.local_modules += [ local_tunnel_module ]
+		self.remote_modules += [ remote_tunnel_module ]
+		self.local_tunnel = local_tunnel
+		self.remote_tunnel = remote_tunnel
+
+		# Create loopbacks
+		self.local_modules += [ add_loopback(local_tunnel, self.local_sink) ]
+		self.remote_modules += [ add_loopback(remote_tunnel, self.remote_sink, wrapper=self.remote_wrapper) ]
+	
+	
+	def __exit__(self, exc_type, exc_value, traceback):
+		# Clean up
+		for module in self.local_modules:
+			unload_module(module)
+
+		for module in self.remote_modules:
+			unload_module(module, wrapper=self.remote_wrapper)
+
+
+
+if __name__ == '__main__':
+	print '╭─────────────────────────╮'
+	print '│ PulseVoIP (QnD edition) │'
+	print '╰─────────────────────────╯'
+	print 'Version: 2013-11-08'
+	
+	parser = argparse.ArgumentParser(description='PulseVoIP')
+	parser.add_argument('--remote-host', type=str, required=True)
+	parser.add_argument('--remote-port', type=int, required=False, default=4713)
+	parser.add_argument('--remote-user', type=str, required=False, default='player')
+	parser.add_argument('--local-host', type=str, required=False, default=socket.gethostname())
+	parser.add_argument('--local-port', type=int, required=False, default=4713)
+	parser.add_argument('--remote-source', type=str, required=False, default='alsa_input.usb-Sennheiser_Communications_Sennheiser_USB_headset-00-headset.analog-mono')
+	parser.add_argument('--remote-sink', type=str, required=False, default='alsa_output.usb-Sennheiser_Communications_Sennheiser_USB_headset-00-headset.analog-stereo')
+	parser.add_argument('--local-source', type=str, required=False, default='alsa_input.usb-Sennheiser_Communications_Sennheiser_USB_headset-00-headset.analog-mono')
+	parser.add_argument('--local-sink', type=str, required=False , default='alsa_output.usb-Sennheiser_Communications_Sennheiser_USB_headset-00-headset.analog-stereo')
+	args = parser.parse_args()
+	
+	#safe_ips = None
+	
+	print args
+	
+	with PulseVoIPQnD(
+		remote_host=args.remote_host,
+		remote_port=args.remote_port,
+		remote_wrapper=[ 'ssh', '%s@%s' % (args.remote_user, args.remote_host)],
+		local_host=args.local_host,
+		local_port=args.local_port,
+		remote_source=args.remote_source,
+		remote_sink=args.remote_sink,
+		local_source=args.local_source,
+		local_sink=args.local_sink
+	) as voip:
+		commands = [ 'quit', 'record', 'stop' ]
+		init_readline(commands)
+		recorder = None
+		
+		print
+		print 'Ready.'
+		print 'Available commands:', ', '.join(commands)
+		
+		while True:
+			try:
+				line = raw_input('> ')
+				tokens = line.split()
+			except EOFError:
+				tokens = [ 'quit' ]
+			
+			if len(tokens) == 0:
+				continue
+			
+			if tokens[0] == 'quit':
+				if not recorder is None and recorder.is_recording():
+					try:
+						recorder.stop()
+					except Exception, e:
+						print >>sys.stderr, e
+					print '[' + colorama.Fore.BLUE + '■' + colorama.Fore.RESET + '] Stopped.'
+				break
+			
+			elif tokens[0] == 'record':
+				if recorder is None:
+					recorder = PulseRecorder()
+				if recorder.is_recording():
+					print 'Already recording!'
+				
+				t = time.strftime("%Y-%m-%d-%H-%M-%S")
+				
+				if len(tokens) < 2:
+					filename = tempfile.mktemp(suffix='.wav', prefix='%s-pulsevoip-' % t, dir=os.getenv("HOME"))
+					print 'No file name supplied -- using %s.' % filename
+				else:
+					filename_cmp = tokens[1].split(os.sep)
+					if len(filename_cmp) == 1:
+						filename_cmp = filter(lambda x: len(x) != 0, os.getenv("HOME").split(os.sep)) + filename_cmp
+					
+					if not '.' in filename_cmp[-1]:
+						filename_cmp[-1] = '%s-%s.wav' % (t, filename_cmp[-1])
+					
+					filename = os.sep + os.sep.join(filename_cmp)
+					
+					print 'Filename: %s' % filename
+
+				try:
+					recorder.record(voip.local_source, voip.local_tunnel, filename)
+					print '[' + colorama.Fore.RED + '●' + colorama.Fore.RESET + '] Recording.'
+					time.sleep(1.5)
+				except Exception, e:
+					#print >>sys.stderr, e
+					traceback.print_exc()
+				
+			elif tokens[0] == 'stop':
+				if recorder is None or not recorder.is_recording():
+					print 'Not recording.'
+				else:
+					filename = recorder.stop()
+					print '[' + colorama.Fore.BLUE + '■' + colorama.Fore.RESET + '] Stopped. Output file: ' + filename
+			
+			else:
+				print 'Unknown command: %s' % tokens[0]
+				print 'Available commands:', ', '.join(commands)
+
+
