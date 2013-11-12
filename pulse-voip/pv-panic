@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 from pulsevoip import unload_modules
+import subprocess
 
 unload_modules('module-loopback')
 unload_modules('module-zeroconf-discover')
 unload_modules('module-zeroconf-publish')
 unload_modules('module-native-protocol-tcp')
+
+subprocess.call([ 'killall', 'pacat' ])

@@ -45,6 +45,7 @@ class PulseVoIPQnD(object):
 		
 		self.remote_modules = []
 		self.local_modules = []
+		self.loopbacks = []
 		
 		self.remote_host = remote_host
 		self.remote_port = remote_port
@@ -99,12 +100,20 @@ class PulseVoIPQnD(object):
 
 		# Create loopbacks
 		print 'Creating loopback connections...'
-		self.local_modules += [ add_loopback(local_tunnel, self.local_sink) ]
-		self.remote_modules += [ add_loopback(remote_tunnel, self.remote_sink, wrapper=self.remote_wrapper) ]
+		#self.local_modules += [ add_loopback(local_tunnel, self.local_sink) ]
+		#self.remote_modules += [ add_loopback(remote_tunnel, self.remote_sink, wrapper=self.remote_wrapper) ]
+		
+		self.loopbacks += [ start_pacat_loopback(local_tunnel, self.local_sink) ]
+		self.loopbacks += [ start_pacat_loopback(remote_tunnel, self.remote_sink, wrapper=self.remote_wrapper) ]
 	
 	
 	def __exit__(self, exc_type, exc_value, traceback):
 		# Clean up
+		for p in self.loopbacks:
+			stop_pacat_loopback(p)
+		
+		self.loopbacks = []
+		
 		for module in self.local_modules:
 			unload_module(module)
 
@@ -117,7 +126,7 @@ if __name__ == '__main__':
 	print '╭─────────────────────────╮'
 	print '│ PulseVoIP (QnD edition) │'
 	print '╰─────────────────────────╯'
-	print 'Version: 2013-11-08'
+	print 'Version: 2013-11-12'
 	
 	parser = argparse.ArgumentParser(description='PulseVoIP')
 	parser.add_argument('--remote-host', type=str, required=True)

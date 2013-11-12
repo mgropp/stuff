@@ -188,10 +188,57 @@ def get_tunneled_sinks(remote_ip=None, sinks=None):
 
 def add_loopback(source, sink, wrapper=None):
 	logger.info('Adding Loopback %s -> %s' % (source, sink))
-	return load_module('module-loopback', ['source=' + source, 'sink=' + sink], wrapper=wrapper)
+	return load_module('module-loopback', ['source=' + source, 'sink=' + sink, 'latency_msec=1'], wrapper=wrapper)
 	#, 'latency_msec=500'])
 	#, 'latency_msec=1', ])
 
+
+def start_pacat_loopback(source, sink, latency_rec=5, latency_play=5, wrapper=None):
+	"""
+	Alternative loopback using two pacat processes.
+	Has lower latency than module-loopback.
+	source/sink are pasted in a shell command!
+	"""
+	
+	logger.info('Starting pacat loopback %s -> %s' % (source, sink))
+	
+	command = 'pacat -r --latency-msec %d -d %s | pacat -p --latency-msec %d -d %s' % (latency_rec, source, latency_play, sink)
+	
+	# bash won't react to signals while waiting for child processes
+	command = 'trap \'kill $(jobs -p)\' EXIT;' + command
+	command += r' & wait %-'
+	
+	# shell=True might do as well, but...
+	command = [ 'bash', '-ec', command ]
+	
+	if not wrapper is None:
+		if type(wrapper) != list:
+			wrapper = [ wrapper ]
+		
+		command = wrapper + command
+	
+	logger.debug("%s" % command)
+	
+	process = subprocess.Popen(
+		command
+		#stdout=subprocess.STDOUT,
+		#stderr=subprocess.STDERR
+	)
+	
+	return process
+
+
+def stop_pacat_loopback(p):
+	"""
+	p: the output of start_pacat_loopback
+	"""
+
+	logger.debug('Sending SIGINT to %d...' % p.pid)
+	p.send_signal(subprocess.signal.SIGINT)
+	logger.debug('Waiting for process %d...' % p.pid)
+	p.wait()
+	logger.debug('Process %d exited.' % p.pid)
+	
 
 def print_info():
 	print "Default local sink:"
