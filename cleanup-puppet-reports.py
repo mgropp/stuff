@@ -5,7 +5,7 @@ import os.path
 from datetime import datetime, timedelta
 
 basedir = os.sep + os.path.join('var', 'lib', 'puppet', 'reports')
-max_age = timedelta(days=1)
+max_age = timedelta(weeks=1)
 
 
 def get_age(filename):

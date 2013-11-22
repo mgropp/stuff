@@ -30,6 +30,12 @@ from recorder import PulseRecorder
 # groups.
 #
 
+def error():
+	print colorama.Back.RED + colorama.Fore.WHITE + colorama.Style.BRIGHT + '!!! ERROR !!!' + colorama.Style.RESET_ALL + colorama.Fore.RESET + colorama.Back.RESET
+
+
+error()
+
 class PulseVoIPQnD(object):
 	def __init__(
 		self,
@@ -180,6 +186,7 @@ if __name__ == '__main__':
 					try:
 						recorder.stop()
 					except Exception, e:
+						error()
 						print >>sys.stderr, e
 					print '[' + colorama.Fore.BLUE + '■' + colorama.Fore.RESET + '] Stopped.'
 				break
@@ -188,6 +195,7 @@ if __name__ == '__main__':
 				if recorder is None:
 					recorder = PulseRecorder()
 				if recorder.is_recording():
+					error()
 					print 'Already recording!'
 				
 				t = time.strftime("%Y-%m-%d-%H-%M-%S")
@@ -213,16 +221,19 @@ if __name__ == '__main__':
 					time.sleep(1.5)
 				except Exception, e:
 					#print >>sys.stderr, e
+					error()
 					traceback.print_exc()
 				
 			elif tokens[0] == 'stop':
 				if recorder is None or not recorder.is_recording():
+					error()
 					print 'Not recording.'
 				else:
 					filename = recorder.stop()
 					print '[' + colorama.Fore.BLUE + '■' + colorama.Fore.RESET + '] Stopped. Output file: ' + filename
 			
 			else:
+				error()
 				print 'Unknown command: %s' % tokens[0]
 				print 'Available commands:', ', '.join(commands)
 
