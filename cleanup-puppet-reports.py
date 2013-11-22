@@ -4,18 +4,22 @@ import os
 import os.path
 from datetime import datetime, timedelta
 
-basedir = os.sep + os.path.join('var', 'lib', 'puppet', 'reports')
-max_age = timedelta(weeks=1)
+basedir = '/var/lib/puppet/reports'
+max_age = timedelta(weeks=2)
 
 
 def get_age(filename):
-	(_, filename) = os.path.split(filename)
-	if len(filename) != 17:
-		return None
-	if filename[12:17] != '.yaml':
-		return None
+	try:
+		(_, filename) = os.path.split(filename)
+		if len(filename) != 17:
+			return None
+		if filename[12:17] != '.yaml':
+			return None
 
-	return datetime.now() - datetime.strptime(filename[0:12], '%Y%m%d%H%M')
+		return datetime.utcnow() - datetime.strptime(filename[0:12], '%Y%m%d%H%M')
+	
+	except Exception:
+		return None
 
 
 deleted = 0
@@ -32,13 +36,14 @@ for dir in iglob(os.path.join(basedir, '*')):
 	files.pop()
 
 	for filename in files:
-		if get_age(filename) > max_age:
-			print('delete ' + filename)
+		age = get_age(filename)
+		if age is None or age <= max_age:
+			print('keep %s (age %s)' % (filename, age))
+			kept += 1
+		else:
+			print('delete %s (age %s)' % (filename, age))
 			os.unlink(filename)
 			deleted += 1
-		else:
-			print('keep ' + filename)
-			kept += 1
-
+		
 print()
 print('Deleted %d files, kept %d files.' % (deleted, kept))
