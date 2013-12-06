@@ -4,6 +4,8 @@ import os
 import os.path
 import yaml
 from datetime import datetime, timedelta
+import subprocess
+import socket
 
 max_age = timedelta(days=10)
 report_dir = '/var/lib/puppet/reports'
@@ -41,6 +43,25 @@ def check_report(filename):
 	return (time, datetime.now() - time <= max_age, status)
 
 
+def is_private(hostname):
+	try:
+		address = list(map(lambda x: int(x), socket.gethostbyname(hostname).split('.')))
+	
+	except:
+		return True
+	
+	return (address[0] == 10) or \
+	       (address[0] == 172 and address[1] >= 16 and address[1] <= 31) or \
+	       (address[0] == 192 and address[1] == 168)
+
+
+
+if os.path.exists('/usr/bin/fping'):
+	ping = [ '/usr/bin/fping', '-c1', '-t250' ]
+else:
+	ping = [ '/usr/bin/ping', '-c1' ]
+
+
 count_machines = 0
 count_bad_age = 0
 count_bad_status = 0
@@ -54,6 +75,19 @@ for dir in dirs:
 
 	count_machines += 1	
 	machine = os.path.basename(dir)
+
+	is_reachable = False
+	if is_private(machine):
+		reachable = 'private'
+	else:
+		with open('/dev/null', 'w') as devnull:
+			if subprocess.call(ping + [machine], stdout=devnull, stderr=devnull) == 0:
+				is_reachable = True
+				reachable = 'reachable'
+			else:
+				reachable = 'not reach.'
+
+
 	if '.' in machine:
 		machine = machine[0:machine.find('.')]
 
@@ -65,9 +99,14 @@ for dir in dirs:
 
 	files.sort()
 	latest = files[-1]
+	
 
 	(time, age_ok, status) = check_report(latest)
-	print('%s %s: %s at %s (age: %s)' % ('OK ' if age_ok and (status != 'failed') else 'BAD' , machine, status, time, 'good' if age_ok else 'bad'))
+	time = str(time)[0:19]
+
+	warning = is_reachable and ((not age_ok) or (status == 'failed'))
+	warning = '!' if warning else ' '
+	print('%s %s %-8s (%-10s): %s at %s (age: %s)' % (warning, 'OK ' if age_ok and (status != 'failed') else 'BAD', machine, reachable, status, time, 'good' if age_ok else 'bad'))
 	if not age_ok:
 		count_bad_age += 1
 	if (status != 'changed') and (status != 'unchanged'):
