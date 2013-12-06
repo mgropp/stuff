@@ -65,6 +65,7 @@ else:
 count_machines = 0
 count_bad_age = 0
 count_bad_status = 0
+trouble = False
 
 dirs = glob(os.path.join(report_dir, '*'))
 dirs.sort()
@@ -103,8 +104,10 @@ for dir in dirs:
 
 	(time, age_ok, status) = check_report(latest)
 	time = str(time)[0:19]
-
 	warning = is_reachable and ((not age_ok) or (status == 'failed'))
+
+	trouble = trouble or (status == 'failed') or warning
+
 	warning = '!' if warning else ' '
 	print('%s %s %-8s (%-10s): %s at %s (age: %s)' % (warning, 'OK ' if age_ok and (status != 'failed') else 'BAD', machine, reachable, status, time, 'good' if age_ok else 'bad'))
 	if not age_ok:
@@ -116,4 +119,4 @@ for dir in dirs:
 if count_bad_age == 0 and count_bad_status == 0:
 	print('OK (last run: %s, %d computers)' % (datetime.now(), count_machines))
 else:
-	print('Problems! Age: bad on %d/%d machines. Status: bad on %d/%d machines.' % (count_bad_age, count_machines, count_bad_status, count_machines))
+	print('%s Age: bad on %d/%d machines. Status: bad on %d/%d machines.' % ('ALARM!' if trouble else 'Warning:', count_bad_age, count_machines, count_bad_status, count_machines))

@@ -17,9 +17,12 @@ fi
 
 status=$( tail -n1 "$logfile" )
 echo "Puppet reports: $status"
-if ( echo "$status" | egrep '^OK' > /dev/null )
+if ( echo "$status" | egrep -q '^OK' )
 then
 	exit $STATE_OK
-else
+elif ( echo "$status" | egrep -q '^ALARM' )
+then
 	exit $STATE_CRITICAL
+else
+	exit $STATE_WARNING
 fi
