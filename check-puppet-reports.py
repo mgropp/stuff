@@ -79,7 +79,7 @@ for dir in dirs:
 
 	is_reachable = False
 	if is_private(machine):
-		reachable = 'private'
+		reachable = '(private)'
 	else:
 		with open('/dev/null', 'w') as devnull:
 			if subprocess.call(ping + [machine], stdout=devnull, stderr=devnull) == 0:
@@ -109,7 +109,7 @@ for dir in dirs:
 	trouble = trouble or (status == 'failed') or warning
 
 	warning = '!' if warning else ' '
-	print('%s %s %-8s (%-10s): %s at %s (age: %s)' % (warning, 'OK ' if age_ok and (status != 'failed') else 'BAD', machine, reachable, status, time, 'good' if age_ok else 'bad'))
+	print('%s %-3s | %-8s | %-10s | %s | %-9s | age: %s' % (warning, 'OK' if age_ok and (status != 'failed') else 'BAD', machine, reachable, time, status, 'good' if age_ok else 'bad'))
 	if not age_ok:
 		count_bad_age += 1
 	if (status != 'changed') and (status != 'unchanged'):
