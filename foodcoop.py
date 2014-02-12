@@ -1,10 +1,12 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
+# mgropp, 2014-02-12
 from __future__ import print_function
 import sys
 import csv
 import cgi
 import argparse
+import math
 from cookielib import CookieJar
 from urllib2 import build_opener, HTTPCookieProcessor
 from datetime import datetime
@@ -44,6 +46,29 @@ def to_float(s):
 		return None
 
 
+def to_cents(s):
+	try:
+		if '.' in s:
+			(euros, cents) = tuple(s.split('.'))
+			if len(cents) < 2:
+				cents += '0'
+			elif len(cents) > 2:
+				return None
+			
+			return 100*int(euros) + int(cents)
+		else:
+			return 100 * int(s)
+		
+	except:
+		return None
+
+
+def cents_to_euros(cents):
+	euros = math.ceil(cents) / 100.0
+	rounded = abs(cents/100.0 - euros) > 0.00001
+	return (euros, rounded)
+
+
 def select_tuples(tuples, index, value, out_index=None):
 	for t in tuples:
 		if t[index] == value:
@@ -53,12 +78,12 @@ def select_tuples(tuples, index, value, out_index=None):
 				yield t[out_index]
 
 
-tuple_elements = ('supplier', 'product', 'customer', 'price_per_unit', 'quantity', 'unit', 'price')
+tuple_elements = ('supplier', 'product', 'customer', 'price_per_unit', 'quantity', 'unit')
 tuple_indices = dict(zip(tuple_elements, range(len(tuple_elements))))
 
 
-def encode_tuple(supplier, product, customer, price_per_unit, quantity, unit, price):
-	return (supplier, product, customer, price_per_unit, quantity, unit, price)
+def encode_tuple(supplier=None, product=None, customer=None, price_per_unit=None, quantity=None, unit=None):
+	return (supplier, product, customer, price_per_unit, quantity, unit)
 
 
 def decode_tuple(t):
@@ -74,7 +99,7 @@ finally:
 	f.close()
 
 date = get_cell(table, pos_date)
-customers = get_row(table, pos_customers)
+customers = map(lambda x: x.strip(), get_row(table, pos_customers))
 
 orders = []
 products = []
@@ -99,14 +124,15 @@ for y in range(pos_products[0], len(table)):
 		suppliers.append(supplier)
 	
 	(product, price_kg, price_piece) = row[0:3]
-	price_kg = to_float(price_kg)
-	price_piece = to_float(price_piece)
+	price_kg = to_cents(price_kg)
+	price_piece = to_cents(price_piece)
 	
 	# Zeile ignorieren?
 	if (price_kg is None) and (price_piece is None):
 		continue
 	
 	# Produkt!
+	product = product.strip()
 	price_per_unit = price_kg if price_piece is None else price_piece
 	unit = 'kg' if price_piece is None else 'Stück'
 	if not product in products:
@@ -117,8 +143,7 @@ for y in range(pos_products[0], len(table)):
 		if (quantity is None) or (quantity <= 0):
 			continue
 		
-		price = price_per_unit * quantity
-		orders.append(encode_tuple(supplier, product, customer, price_per_unit, quantity, unit, price))
+		orders.append(encode_tuple(supplier, product, customer, price_per_unit, quantity, unit))
 
 
 ########################################################################
@@ -126,80 +151,135 @@ class FormatHtml(object):
 	def __init__(self):
 		self.out = ''
 	
-	def begin(self, title='Bestellung'):
+	def __enter__(self):
+		title = 'Bestellung'
 		self.out += '<!DOCTYPE HTML><html><head><meta charset="UTF-8"><title>%s</title></head><body>\n' % cgi.escape(title)
 		self.out += '<p><b>Warnung:</b> Das Programm, das diese Übersicht erzeugt, wurde noch nicht sehr gründlich getestet. Die Liste könnte also Fehler enthalten!</p>\n'
-
-	def end(self):
+		return self
+	
+	def __exit__(self, *exc_info):
 		self.out += '</body></html>\n'
-		
+	
 	def heading(self, s):
 		self.out += '<h2>%s</h2>\n' % cgi.escape(s)
-
-	def list_begin(self):
-		self.out += '<ul>\n'
-
-	def list_end(self):
-		self.out += '</ul>\n'
-
-	def customer_begin(self, customer, total):
-		self.out += '<li><b>%s:</b> %.2f€\n<ul>\n' % (cgi.escape(customer), total)
 	
-	def customer_end(self):
-		self.out += '</ul></li>\n'
-
-	def supplier_begin(self, supplier, total):
-		self.out += '<li><b>%s:</b> %.2f€\n<ul>\n' % (cgi.escape(supplier), total)
+	def list(oself):
+		class List(object):
+			def __enter__(iself):
+				oself.out += '<ul>\n'
+				return iself
+			
+			def __exit__(iself, *exc_info):
+				oself.out += '</ul>\n'
+		
+		return List()
 	
-	def supplier_end(self):
-		self.out += '</ul></li>\n'
+	def customer(oself, customer, total, rounded=False):
+		class Customer(object):
+			def __enter__(iself):
+				if rounded:
+					oself.out += '<li><b>%s:</b> ≈%.2f€\n<ul>\n' % (cgi.escape(customer), total)
+				else:
+					oself.out += '<li><b>%s:</b> %.2f€\n<ul>\n' % (cgi.escape(customer), total)
+				return iself
 	
-	def product_customer(self, quantity, unit, product, supplier, price):
+			def __exit__(iself, *exc_info):
+				oself.out += '</ul></li>\n'
+		
+		return Customer()
+	
+	def supplier(oself, supplier, total, rounded=False):
+		class Supplier(object):
+			def __enter__(iself):
+				if rounded:
+					oself.out += '<li><b>%s:</b> ≈%.2f€\n<ul>\n' % (cgi.escape(supplier), total)
+				else:
+					oself.out += '<li><b>%s:</b> %.2f€\n<ul>\n' % (cgi.escape(supplier), total)
+				return iself
+	
+			def __exit__(iself, *exc_info):
+				oself.out += '</ul></li>\n'
+		
+		return Supplier()
+	
+	def product_customer(self, quantity, unit, product, supplier, price, rounded=False):
 		product = cgi.escape(product)
 		supplier = cgi.escape(supplier)
-		self.out += '<li>%g %s %s von %s (%.2f€)</li>\n' % (quantity, unit, product, supplier, price)
+		if rounded:
+			self.out += '<li>%g %s %s von %s (≈%.2f€)</li>\n' % (quantity, unit, product, supplier, price)
+		else:
+			self.out += '<li>%g %s %s von %s (%.2f€)</li>\n' % (quantity, unit, product, supplier, price)
 	
-	def product_supplier(self, quantity, unit, product, price_per_unit, price):
+	def product_supplier(self, quantity, unit, product, price_per_unit, price, rounded=False):
 		product = cgi.escape(product)
-		self.out += '<li>%g %s %s (à %.2f€): %.2f€</li>\n' % (quantity, unit, product, price_per_unit, price)
+		if rounded:
+			self.out += '<li>%g %s %s (à %.2f€): ≈%.2f€</li>\n' % (quantity, unit, product, price_per_unit, price)
+		else:
+			self.out += '<li>%g %s %s (à %.2f€): %.2f€</li>\n' % (quantity, unit, product, price_per_unit, price)
 
 
 class FormatPlain(object):
 	def __init__(self):
 		self.out = ''
 	
-	def begin(self):
-		self.out += 'WARNUNG: Das Programm, das diese Übersicht erzeugt, wurde noch nicht sehr gründlich getestet. Die Liste könnte also Fehler enthalten!\n'
+	def __enter__(self):
+		self.out += 'WARNUNG: Das Programm, das diese Übersicht erzeugt, wurde noch nicht sehr gründlich getestet. Die Liste könnte also Fehler enthalten!\n\n'
+		return self
 		
-	def end(self):
+	def __exit__(self, *exc_info):
 		self.out += ''
 	
 	def heading(self, s):
 		self.out += '======== %s ========\n' % s
 
-	def list_begin(self):
-		self.out += ''
+	def list(self):
+		class List(object):
+			def __enter__(self):
+				return self
+			def __exit__(self, *exc_info):
+				pass
+		
+		return List()
 
-	def list_end(self):
-		self.out += ''
-
-	def customer_begin(self, customer, total):
-		self.out += '%s: %.2f€\n' % (customer, total)
+	def customer(oself, customer, total, rounded=False):
+		class Customer(object):
+			def __enter__(iself):
+				if rounded:
+					oself.out += '%s: ≈%.2f€\n' % (customer, total)
+				else:
+					oself.out += '%s: %.2f€\n' % (customer, total)
+				return iself
+				
+			def __exit__(iself, *exc_info):
+				oself.out += '\n'
+		
+		return Customer()
 	
-	def customer_end(self):
-		self.out += '\n'
+	def supplier(oself, supplier, total, rounded=False):
+		class Supplier(object):
+			def __enter__(iself):
+				if rounded:
+					oself.out += '%s: ≈%.2f€\n' % (supplier, total)
+				else:
+					oself.out += '%s: %.2f€\n' % (supplier, total)
+				return iself
 	
-	def supplier_begin(self, supplier, total):
-		self.out += '%s: %.2f€\n' % (supplier, total)
+			def __exit__(iself, *exc_info):
+				oself.out += '\n'
+		
+		return Supplier()
 	
-	def supplier_end(self):
-		self.out += '\n'
+	def product_customer(self, quantity, unit, product, supplier, price, rounded=False):
+		if rounded:
+			self.out += '%g %s %s von %s (≈%.2f€)\n' % (quantity, unit, product, supplier, price)
+		else:
+			self.out += '%g %s %s von %s (%.2f€)\n' % (quantity, unit, product, supplier, price)
 	
-	def product_customer(self, quantity, unit, product, supplier, price):
-		self.out += '%g %s %s von %s (%.2f€)\n' % (quantity, unit, product, supplier, price)
-	
-	def product_supplier(self, quantity, unit, product, price_per_unit, price):
-		self.out += '%g %s %s (à %.2f€): %.2f€\n' % (quantity, unit, product, price_per_unit, price)
+	def product_supplier(self, quantity, unit, product, price_per_unit, price, rounded=False):
+		if rounded:
+			self.out += '%g %s %s (à %.2f€): ≈%.2f€\n' % (quantity, unit, product, price_per_unit, price)
+		else:
+			self.out += '%g %s %s (à %.2f€): %.2f€\n' % (quantity, unit, product, price_per_unit, price)
 
 
 class Mux(object):
@@ -208,8 +288,16 @@ class Mux(object):
 		
 		def makef(attr):
 			def f(*args):
+				results = []
 				for obj in objects:
-					getattr(obj, attr)(*args)
+					result = getattr(obj, attr)(*args)
+					if not result is None:
+						results.append(result)
+				if len(results) == 1:
+					return results[0]
+				elif len(results) > 1:
+					return Mux(*results)
+				
 			return f
 		
 		for obj in objects:
@@ -222,58 +310,68 @@ class Mux(object):
 				
 				if hasattr(getattr(obj, attr), '__call__'):
 					setattr(self, attr, makef(attr))
+	
+	
+	def __enter__(self):
+		for obj in self.objects:
+			if hasattr(obj, '__enter__'):
+				obj.__enter__()
+		
+		return self
+	
+	
+	def __exit__(self, *exc_info):
+		for obj in self.objects:
+			if hasattr(obj, '__exit__'):
+				obj.__exit__(*exc_info)
 
 
 def format_output(fmt):
-	fmt.begin()
-	
-	# nach Kunde
-	fmt.heading("Nach Kunden")
-	fmt.list_begin()
-	for customer in customers:
-		tuples = list(select_tuples(orders, 2, customer))
-		if len(tuples) == 0:
-			continue
-		
-		total = sum(map(lambda x: x[-1], tuples))
-		
-		fmt.customer_begin(customer, total)
-		for t in tuples:
-			t = decode_tuple(t)
-			fmt.product_customer(t['quantity'], t['unit'], t['product'], t['supplier'], t['price'])
-		fmt.customer_end()
-
-	fmt.list_end()
+	with fmt:
+		# nach Kunde
+		fmt.heading("Nach Kunden")
+		with fmt.list():
+			for customer in customers:
+				tuples = list(select_tuples(orders, 2, customer))
+				if len(tuples) == 0:
+					continue
+				
+				total = sum(map(lambda x: x[tuple_indices['price_per_unit']] * x[tuple_indices['quantity']], tuples))
+				(total, rounded) = cents_to_euros(total)
+				
+				with fmt.customer(customer, total, rounded):
+					for t in tuples:
+						t = decode_tuple(t)
+						(price, rounded) = cents_to_euros(t['price_per_unit'] * t['quantity'])
+						fmt.product_customer(t['quantity'], t['unit'], t['product'], t['supplier'], price, rounded)
 
 
-	# nach Hof
-	fmt.heading("Nach Lieferanten")
-	fmt.list_begin()
-	for supplier in suppliers:
-		tuples = list(select_tuples(orders, tuple_indices['supplier'], supplier))
-		if len(tuples) == 0:
-			continue
+		# nach Hof
+		fmt.heading("Nach Lieferanten")
+		with fmt.list():
+			for supplier in suppliers:
+				tuples = list(select_tuples(orders, tuple_indices['supplier'], supplier))
+				if len(tuples) == 0:
+					continue
 
-		total = sum(map(lambda x: x[tuple_indices['price']], tuples))
-		
-		fmt.supplier_begin(supplier, total)
-		for product in products:
-			product_tuples = list(select_tuples(tuples, tuple_indices['product'], product))
-			if len(product_tuples) == 0:
-				continue
-			
-			quantity = sum(map(lambda x: x[tuple_indices['quantity']], product_tuples))
-			price = sum(map(lambda x: x[tuple_indices['price']], product_tuples))
-			unit = product_tuples[0][tuple_indices['unit']]
-			price_per_unit = product_tuples[0][tuple_indices['price_per_unit']]
-			
-			fmt.product_supplier(quantity, unit, product, price_per_unit, price)
-		
-		fmt.supplier_end()
-
-	fmt.list_end()
-
-	fmt.end()
+				total = sum(map(lambda x: x[tuple_indices['price_per_unit']] * x[tuple_indices['quantity']], tuples))
+				(total, rounded) = cents_to_euros(total)
+				
+				with fmt.supplier(supplier, total, rounded):
+					for product in products:
+						product_tuples = list(select_tuples(tuples, tuple_indices['product'], product))
+						if len(product_tuples) == 0:
+							continue
+						
+						quantity = sum(map(lambda x: x[tuple_indices['quantity']], product_tuples))
+						price = sum(map(lambda x: x[tuple_indices['price_per_unit']] * x[tuple_indices['quantity']], product_tuples))
+						unit = product_tuples[0][tuple_indices['unit']]
+						price_per_unit = product_tuples[0][tuple_indices['price_per_unit']]
+						
+						(price, rounded) = cents_to_euros(price)
+						price_per_unit = price_per_unit / 100.0
+						
+						fmt.product_supplier(quantity, unit, product, price_per_unit, price, rounded)
 
 
 ########################################################################
@@ -291,7 +389,7 @@ if args.mail:
 		parser.error('Missing required --to/--from/--subject.')
 
 if args.html:
-	if not args.mail is None:
+	if args.mail:
 		out_html = FormatHtml()
 		out_plain = FormatPlain()
 		out = Mux(out_html, out_plain)
