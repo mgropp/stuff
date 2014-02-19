@@ -387,8 +387,8 @@ def format_output(fmt):
 						
 						fmt.product_supplier(quantity, unit, product, price_per_unit, price, rounded)
 
-		if total_customers != total_suppliers:
-			fmt.warning('Die Summen für Kunden und Lieferanten stimmen, möglicherweise aufgrund von Rundungseffekten, nicht überein!')
+		if abs(total_customers - total_suppliers) > 0.00001:
+			fmt.warning('Die Summen für Kunden und Lieferanten stimmen, möglicherweise aufgrund von Rundungseffekten, nicht überein (%f€ vs %f€)!' % (total_customers, total_suppliers))
 
 ########################################################################
 parser = argparse.ArgumentParser(description='Foodcoop Bestellung')
