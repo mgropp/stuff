@@ -66,6 +66,8 @@ def to_cents(s):
 def cents_to_euros(cents):
 	euros = math.ceil(cents) / 100.0
 	rounded = abs(cents/100.0 - euros) > 0.00001
+	if rounded:
+		rounded = -1 if (euros < cents / 100.0) else 1
 	return (euros, rounded)
 
 
@@ -174,11 +176,11 @@ class FormatHtml(object):
 		
 		return List()
 	
-	def customer(oself, customer, total, rounded=False):
+	def customer(oself, customer, total, rounded=0):
 		class Customer(object):
 			def __enter__(iself):
-				if rounded:
-					oself.out += '<li><b>%s:</b> ≈%.2f€\n<ul>\n' % (cgi.escape(customer), total)
+				if rounded != 0:
+					oself.out += '<li><b>%s:</b> ≈%.2f€%s\n<ul>\n' % (cgi.escape(customer), total, '↓' if rounded < 0 else '↑')
 				else:
 					oself.out += '<li><b>%s:</b> %.2f€\n<ul>\n' % (cgi.escape(customer), total)
 				return iself
@@ -188,11 +190,11 @@ class FormatHtml(object):
 		
 		return Customer()
 	
-	def supplier(oself, supplier, total, rounded=False):
+	def supplier(oself, supplier, total, rounded=0):
 		class Supplier(object):
 			def __enter__(iself):
-				if rounded:
-					oself.out += '<li><b>%s:</b> ≈%.2f€\n<ul>\n' % (cgi.escape(supplier), total)
+				if rounded != 0:
+					oself.out += '<li><b>%s:</b> ≈%.2f€%s\n<ul>\n' % (cgi.escape(supplier), total, '↓' if rounded < 0 else '↑')
 				else:
 					oself.out += '<li><b>%s:</b> %.2f€\n<ul>\n' % (cgi.escape(supplier), total)
 				return iself
@@ -202,18 +204,18 @@ class FormatHtml(object):
 		
 		return Supplier()
 	
-	def product_customer(self, quantity, unit, product, supplier, price, rounded=False):
+	def product_customer(self, quantity, unit, product, supplier, price, rounded=0):
 		product = cgi.escape(product)
 		supplier = cgi.escape(supplier)
-		if rounded:
-			self.out += '<li>%g %s %s von %s (≈%.2f€)</li>\n' % (quantity, unit, product, supplier, price)
+		if rounded != 0:
+			self.out += '<li>%g %s %s von %s (≈%.2f€%s)</li>\n' % (quantity, unit, product, supplier, price, '↓' if rounded < 0 else '↑')
 		else:
 			self.out += '<li>%g %s %s von %s (%.2f€)</li>\n' % (quantity, unit, product, supplier, price)
 	
-	def product_supplier(self, quantity, unit, product, price_per_unit, price, rounded=False):
+	def product_supplier(self, quantity, unit, product, price_per_unit, price, rounded=0):
 		product = cgi.escape(product)
-		if rounded:
-			self.out += '<li>%g %s %s (à %.2f€): ≈%.2f€</li>\n' % (quantity, unit, product, price_per_unit, price)
+		if rounded != 0:
+			self.out += '<li>%g %s %s (à %.2f€): ≈%.2f€%s</li>\n' % (quantity, unit, product, price_per_unit, price, '↓' if rounded < 0 else '↑')
 		else:
 			self.out += '<li>%g %s %s (à %.2f€): %.2f€</li>\n' % (quantity, unit, product, price_per_unit, price)
 
@@ -241,11 +243,11 @@ class FormatPlain(object):
 		
 		return List()
 
-	def customer(oself, customer, total, rounded=False):
+	def customer(oself, customer, total, rounded=0):
 		class Customer(object):
 			def __enter__(iself):
-				if rounded:
-					oself.out += '%s: ≈%.2f€\n' % (customer, total)
+				if rounded != 0:
+					oself.out += '%s: ≈%.2f€%s\n' % (customer, total, '↓' if rounded < 0 else '↑')
 				else:
 					oself.out += '%s: %.2f€\n' % (customer, total)
 				return iself
@@ -255,11 +257,11 @@ class FormatPlain(object):
 		
 		return Customer()
 	
-	def supplier(oself, supplier, total, rounded=False):
+	def supplier(oself, supplier, total, rounded=0):
 		class Supplier(object):
 			def __enter__(iself):
-				if rounded:
-					oself.out += '%s: ≈%.2f€\n' % (supplier, total)
+				if rounded != 0:
+					oself.out += '%s: ≈%.2f€%s\n' % (supplier, total, '↓' if rounded < 0 else '↑')
 				else:
 					oself.out += '%s: %.2f€\n' % (supplier, total)
 				return iself
@@ -269,15 +271,15 @@ class FormatPlain(object):
 		
 		return Supplier()
 	
-	def product_customer(self, quantity, unit, product, supplier, price, rounded=False):
-		if rounded:
-			self.out += '%g %s %s von %s (≈%.2f€)\n' % (quantity, unit, product, supplier, price)
+	def product_customer(self, quantity, unit, product, supplier, price, rounded=0):
+		if rounded != 0:
+			self.out += '%g %s %s von %s (≈%.2f€%s)\n' % (quantity, unit, product, supplier, price, '↓' if rounded < 0 else '↑')
 		else:
 			self.out += '%g %s %s von %s (%.2f€)\n' % (quantity, unit, product, supplier, price)
 	
-	def product_supplier(self, quantity, unit, product, price_per_unit, price, rounded=False):
+	def product_supplier(self, quantity, unit, product, price_per_unit, price, rounded=0):
 		if rounded:
-			self.out += '%g %s %s (à %.2f€): ≈%.2f€\n' % (quantity, unit, product, price_per_unit, price)
+			self.out += '%g %s %s (à %.2f€): ≈%.2f€%s\n' % (quantity, unit, product, price_per_unit, price, '↓' if rounded < 0 else '↑')
 		else:
 			self.out += '%g %s %s (à %.2f€): %.2f€\n' % (quantity, unit, product, price_per_unit, price)
 
