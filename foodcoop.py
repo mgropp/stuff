@@ -218,6 +218,9 @@ class FormatHtml(object):
 			self.out += '<li>%g %s %s (à %.2f€): ≈%.2f€%s</li>\n' % (quantity, unit, product, price_per_unit, price, '↓' if rounded < 0 else '↑')
 		else:
 			self.out += '<li>%g %s %s (à %.2f€): %.2f€</li>\n' % (quantity, unit, product, price_per_unit, price)
+	
+	def warning(self, message):
+		self.out += '<p><b>Warnung:</b> %s</p>\n' % message
 
 
 class FormatPlain(object):
@@ -282,6 +285,9 @@ class FormatPlain(object):
 			self.out += '%g %s %s (à %.2f€): ≈%.2f€%s\n' % (quantity, unit, product, price_per_unit, price, '↓' if rounded < 0 else '↑')
 		else:
 			self.out += '%g %s %s (à %.2f€): %.2f€\n' % (quantity, unit, product, price_per_unit, price)
+	
+	def warning(self, message):
+		self.out += '\nWARNUNG: %s\n\n' % message
 
 
 class Mux(object):
@@ -332,6 +338,7 @@ def format_output(fmt):
 	with fmt:
 		# nach Kunde
 		fmt.heading("Nach Kunden")
+		total_customers = 0.0
 		with fmt.list():
 			for customer in customers:
 				tuples = list(select_tuples(orders, 2, customer))
@@ -340,6 +347,8 @@ def format_output(fmt):
 				
 				total = sum(map(lambda x: x[tuple_indices['price_per_unit']] * x[tuple_indices['quantity']], tuples))
 				(total, rounded) = cents_to_euros(total)
+				
+				total_customers += total
 				
 				with fmt.customer(customer, total, rounded):
 					for t in tuples:
@@ -350,6 +359,7 @@ def format_output(fmt):
 
 		# nach Hof
 		fmt.heading("Nach Lieferanten")
+		total_suppliers = 0.0
 		with fmt.list():
 			for supplier in suppliers:
 				tuples = list(select_tuples(orders, tuple_indices['supplier'], supplier))
@@ -358,6 +368,8 @@ def format_output(fmt):
 
 				total = sum(map(lambda x: x[tuple_indices['price_per_unit']] * x[tuple_indices['quantity']], tuples))
 				(total, rounded) = cents_to_euros(total)
+				
+				total_suppliers += total
 				
 				with fmt.supplier(supplier, total, rounded):
 					for product in products:
@@ -375,6 +387,8 @@ def format_output(fmt):
 						
 						fmt.product_supplier(quantity, unit, product, price_per_unit, price, rounded)
 
+		if total_customers != total_suppliers:
+			fmt.warning('Die Summen für Kunden und Lieferanten stimmen, möglicherweise aufgrund von Rundungseffekten, nicht überein!')
 
 ########################################################################
 parser = argparse.ArgumentParser(description='Foodcoop Bestellung')
