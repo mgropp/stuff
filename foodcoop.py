@@ -15,6 +15,9 @@ from datetime import datetime
 # URL für Tabelle als CSV
 url = 'https://docs.google.com/spreadsheet/ccc?key=0ApNp0aXSrxXPdHlZYk1GTUtuVTVKVWd4RHpYY1ZPS2c&output=csv&gid=2'
 
+# URL für Tabelle als ODS
+url_ods = 'https://docs.google.com/spreadsheet/ccc?key=0ApNp0aXSrxXPdHlZYk1GTUtuVTVKVWd4RHpYY1ZPS2c&output=ods'
+
 # Zelle mit dem Lieferdatum
 pos_date = (1,0)
 
@@ -146,6 +149,25 @@ for y in range(pos_products[0], len(table)):
 			continue
 		
 		orders.append(encode_tuple(supplier, product, customer, price_per_unit, quantity, unit))
+
+
+########################################################################
+def attach_spreadsheet(message, url=url_ods, mime_type=('application', 'vnd.oasis.opendocument.spreadsheet'), filename='foodcoop.ods'):
+	from email.MIMEBase import MIMEBase
+	from email import Encoders
+
+	part = MIMEBase(mime_type[0], mime_type[1])
+	opener = build_opener(HTTPCookieProcessor(CookieJar()))
+	f = opener.open(url)
+	try:
+		part.set_payload(f.read())
+	finally:
+		f.close()
+	
+	Encoders.encode_base64(part)
+	part.add_header('Content-Disposition', 'attachment; filename="%s"' % filename)
+	
+	message.attach(part)
 
 
 ########################################################################
@@ -397,12 +419,13 @@ parser.add_argument('--mail', action='store_true', help='prepare output for send
 parser.add_argument('--to', type=str, dest='recipient', action='store',  metavar='RECIPIENT', help='email recipient')
 parser.add_argument('--from', type=str, dest='sender', action='store', metavar='SENDER', help='email sender')
 parser.add_argument('--subject', type=str, default='Foodcoop-Bestellung KW %s' % datetime.now().isocalendar()[1], metavar='SUBJECT', action='store', help='email subject')
+parser.add_argument('--attach', action='store_true', help='attach original spreadsheet to email')
 
 args = parser.parse_args()
 
 if args.mail:
-	if args.recipient is None or args.sender is None or args.subject is None:
-		parser.error('Missing required --to/--from/--subject.')
+	if args.recipient is None or args.sender is None:
+		parser.error('Missing required --to/--from.')
 
 if args.html:
 	if args.mail:
@@ -430,32 +453,39 @@ if args.mail:
 	#email.Charset.add_charset('utf-8', email.Charset.QP, email.Charset.QP, 'utf-8')
 	email.Charset.add_charset('utf-8', 'utf-8', 'utf-8', 'utf-8')
 	
-	multipart = MIMEMultipart('alternative')
+	multipart_root = MIMEMultipart('mixed')
+	multipart_alternative = MIMEMultipart('alternative')
 	
 	if all(ord(c) < 128 for c in args.sender):
-		multipart['From'] = Header(args.sender)
+		multipart_root['From'] = Header(args.sender)
 	else:
-		multipart['From'] = Header(args.sender, 'UTF-8').encode()
+		multipart_root['From'] = Header(args.sender, 'UTF-8').encode()
 	
 	if all(ord(c) < 128 for c in args.recipient):
-		multipart['To'] = Header(args.recipient)
+		multipart_root['To'] = Header(args.recipient)
 	else:
-		multipart['To'] = Header(args.recipient, 'UTF-8').encode()
+		multipart_root['To'] = Header(args.recipient, 'UTF-8').encode()
 	
 	if all(ord(c) < 128 for c in args.subject):
-		multipart['Subject'] = Header(args.subject)
+		multipart_root['Subject'] = Header(args.subject)
 	else:
-		multipart['Subject'] = Header(args.subject, 'UTF-8').encode()
+		multipart_root['Subject'] = Header(args.subject, 'UTF-8').encode()
 	
 	if args.html:
-		multipart.attach(MIMEText(out_plain.out, 'plain', 'UTF-8'))
-		multipart.attach(MIMEText(out_html.out, 'html', 'UTF-8'))
+		multipart_alternative.attach(MIMEText(out_plain.out, 'plain', 'UTF-8'))
+		multipart_alternative.attach(MIMEText(out_html.out, 'html', 'UTF-8'))
 	else:
-		multipart.attach(MIMEText(out.out, 'plain', 'UTF-8'))
+		multipart_alternative.attach(MIMEText(out.out, 'plain', 'UTF-8'))
 	
+
+	multipart_root.attach(multipart_alternative)
+
+	if args.attach:
+		attach_spreadsheet(multipart_root, filename='foodcoop-kw%d.ods' % datetime.now().isocalendar()[1])
+
 	io = StringIO.StringIO()
 	g = Generator(io, False)
-	g.flatten(multipart)
+	g.flatten(multipart_root)
 	
 	print(io.getvalue())
 
