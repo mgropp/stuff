@@ -1,0 +1,28 @@
+#!/bin/bash
+set -e
+set -u
+
+if [[ -z ${SSH_ORIGINAL_COMMAND+x} ]]
+then
+	echo "Access denied."
+	exit 1
+fi
+
+cmd=${SSH_ORIGINAL_COMMAND%% *}
+args=${SSH_ORIGINAL_COMMAND#$cmd}
+
+case $cmd in
+	"rsync")
+		exec /bin/rsync $args
+		;;
+	"internal-sftp")
+		exec /opt/libexec/sftp-server $args
+		;;
+	"scp")
+		exec scp $args
+		;;
+	*)
+		echo "Invalid command: $SSH_ORIGINAL_COMMAND"
+		exit 2
+		;;
+esac
