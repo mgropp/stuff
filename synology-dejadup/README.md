@@ -29,6 +29,11 @@ When you're done, reload the service:
 synoservicectl --reload sshd
 ```
 
+Note:
+I had some trouble with DSM resetting the login shell of my backup account
+to `nologin` --- check this if you're suddenly running into
+"permission denied" problems.
+
 
 rsync and SFTP
 --------------
