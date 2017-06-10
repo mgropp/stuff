@@ -31,8 +31,11 @@ synoservicectl --reload sshd
 
 Note:
 I had some trouble with DSM resetting the login shell of my backup account
-to `nologin` --- check this if you're suddenly running into
-"permission denied" problems.
+to `nologin`.
+
+You can set a scheduled task (in the GUI) to run at boot-up and set the
+correct shells in /etc/passwd:
+/usr/bin/awk -i inplace -F: 'BEGIN{OFS=":"}/^INSERTACCOUNTNAMEHERE\:/{gsub(/.*/,"/bin/sh",$7)}1' /etc/passwd
 
 
 rsync and SFTP
